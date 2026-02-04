@@ -6,7 +6,7 @@
 import json
 import os
 from datetime import datetime
-from typing import Any
+from typing import Any, List
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 SUBMISSIONS_FILE = os.path.join(DATA_DIR, "submissions.json")
@@ -66,6 +66,26 @@ def get_all_for_user(module: str, user_id: str) -> list:
     return [r for r in rows if r.get("学号") == user_id]
 
 
+def delete_user_data(user_id: str):
+    """删除某学号在所有模块的提交数据（后台用户管理用）。"""
+    data = _load()
+    for m in MODULES:
+        data[m] = [r for r in data.get(m, []) if r.get("学号") != user_id]
+    _save(data)
+
+
+def list_users() -> list:
+    """从提交数据中提取所有用户 (学号, 昵称)，用于用户管理列表。"""
+    data = _load()
+    users = {}
+    for m in MODULES:
+        for r in data.get(m, []):
+            uid = r.get("学号", "")
+            if uid and uid not in users:
+                users[uid] = r.get("昵称", "")
+    return [(uid, users[uid]) for uid in sorted(users.keys())]
+
+
 def get_all_grouped_by_user(module: str) -> dict:
     """按学号分组，返回 { 学号: [ entries ] }。"""
     rows = get_all(module)
@@ -78,7 +98,7 @@ def get_all_grouped_by_user(module: str) -> dict:
     return grouped
 
 
-def self_play_to_csv_rows(entries: list) -> list[dict]:
+def self_play_to_csv_rows(entries: list) -> List[dict]:
     """自己玩：每条 entry 含 history，转为 CSV 行（轮次、选择、收益、余额）。"""
     rows = []
     for e in entries:
@@ -99,7 +119,7 @@ def self_play_to_csv_rows(entries: list) -> list[dict]:
     return rows
 
 
-def model_run_to_csv_rows(entries: list) -> list[dict]:
+def model_run_to_csv_rows(entries: list) -> List[dict]:
     """Delta/Qlearning/ORL：path_rows 转为 CSV 行。"""
     rows = []
     for e in entries:
@@ -120,7 +140,7 @@ def model_run_to_csv_rows(entries: list) -> list[dict]:
     return rows
 
 
-def to_csv_string(rows: list[dict]) -> str:
+def to_csv_string(rows: List[dict]) -> str:
     """将行字典列表转为 CSV 字符串（UTF-8 BOM 便于 Excel）。"""
     import csv
     import io
