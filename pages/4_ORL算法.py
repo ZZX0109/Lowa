@@ -143,7 +143,8 @@ if st.session_state.get("orl_result"):
         st.line_chart({"A": prop_a, "B": prop_b, "C": prop_c, "D": prop_d}, height=200)
         st.caption(t("balance_curve"))
         st.line_chart({t("col_balance"): balances}, height=200)
-        st.caption("Ef")
+        st.caption(t("ef_chart_label"))
         st.line_chart({f"Ef({a})": ef_history[a] for a in decks}, height=200)
+        st.caption(t("ef_chart_explain"))
 else:
     st.info(t("hint_orl"))
