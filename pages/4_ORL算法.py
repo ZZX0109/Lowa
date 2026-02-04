@@ -1,0 +1,142 @@
+"""
+实验室 4：ORL 模型 - 同时模拟金额感知与频率感知，V 与 Ef、频率感知图。
+布局：左上日志、左下历史表；右上牌堆比例、右下收益曲线与 Ef。日志区可点击切换为牌堆选择柱状图。
+"""
+
+import streamlit as st
+import pandas as pd
+from collections import Counter
+from igt_env import IGTEnv
+from run_orl import run_orl_step_by_step
+from auth import is_logged_in, get_user_id, get_nickname
+from submission_store import add_submission
+
+st.set_page_config(page_title="ORL · IGT", page_icon="🧠", layout="wide")
+
+if not is_logged_in():
+    st.warning("请先返回首页登录。")
+    if st.button("返回首页"):
+        st.switch_page("app.py")
+    st.stop()
+if "igt_decks" not in st.session_state:
+    st.session_state.igt_decks = {k: list(v) for k, v in IGTEnv.DEFAULT_DECKS.items()}
+
+st.title("🧠 ORL 模型 · 爱荷华赌博任务")
+st.caption("同时模拟「金额感知」与「频率感知」，解释为什么人会反复掉入 B 堆陷阱。")
+st.markdown("---")
+
+with st.sidebar:
+    st.subheader("参数")
+    n_trials = st.number_input("试验轮数", min_value=10, max_value=2000, value=200, step=10)
+    alpha_v = st.slider("学习率 α_reward（金额）", 0.01, 0.5, 0.15, 0.01)
+    alpha_f = st.slider("学习率 α_freq（频率）", 0.01, 0.5, 0.15, 0.01)
+    W_v = st.slider("金额权重 W_v", 0.0, 1.0, 0.5, 0.05)
+    W_f = st.slider("频率权重 W_f", 0.0, 1.0, 0.5, 0.05, help="调高则更看重赢钱频率，易偏向 B 堆")
+    temp = st.slider("Softmax 温度", 0.1, 3.0, 1.5, 0.1)
+    seed = st.number_input("随机种子（可选）", min_value=0, value=42, step=1)
+    step_delay = st.slider("每步延迟（秒）", 0.0, 0.5, 0.05, 0.01, help="0 = 最快")
+    st.markdown("---")
+    run_clicked = st.button("▶ 开始运行 ORL", type="primary")
+    if st.session_state.get("orl_result"):
+        if st.button("🔄 再次运行", key="orl_rerun"):
+            for k in ("orl_result", "log_show_bar_orl"):
+                st.session_state.pop(k, None)
+            st.rerun()
+
+if run_clicked:
+    env = IGTEnv(seed=seed, decks=st.session_state.igt_decks)
+    balance_ph = st.empty()
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        log_ph = st.empty()
+        path_ph = st.empty()
+    with col_right:
+        prop_ph = st.empty()
+        chart_ph = st.empty()
+        freq_chart_ph = st.empty()
+
+    with st.spinner("ORL 运行中..."):
+        path_rows, balances, ef_history, log_lines = run_orl_step_by_step(
+            env, n_trials, alpha_v, alpha_f, W_v, W_f, temp, seed, step_delay,
+            log_ph, balance_ph, path_ph, prop_ph, chart_ph, freq_chart_ph,
+        )
+    decks = list(IGTEnv.DECK_NAMES)
+    st.session_state.orl_result = {
+        "path_rows": path_rows,
+        "balances": balances,
+        "ef_history": ef_history,
+        "log_lines": log_lines,
+        "final_balance": env.balance,
+        "n_trials": n_trials,
+        "decks": decks,
+    }
+    st.rerun()
+
+if st.session_state.get("orl_result"):
+    res = st.session_state.orl_result
+    path_rows = res["path_rows"]
+    balances = res["balances"]
+    log_lines = res["log_lines"]
+    ef_history = res["ef_history"]
+    decks = res["decks"]
+    counts = Counter(r[1] for r in path_rows)
+
+    st.metric("当前余额", f"¥ {res['final_balance']}")
+    row_msg, row_btn = st.columns([2, 1])
+    with row_msg:
+        st.success(f"运行结束 · 共 {res['n_trials']} 轮")
+    with row_btn:
+        if st.button("📤 提交", key="orl_submit"):
+            add_submission(
+                "ORL",
+                get_user_id(),
+                get_nickname(),
+                {
+                    "path_rows": path_rows,
+                    "balances": balances,
+                    "n_trials": res["n_trials"],
+                    "final_balance": res["final_balance"],
+                },
+            )
+            st.success("已提交。")
+            st.rerun()
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        st.caption("选择历史")
+        with st.expander("📋 每轮计算解释（点击展开）", expanded=False):
+            st.caption("模型每轮根据 V（金额）与 Ef（赢钱频率）加权得分、Softmax 得出选择。")
+            st.text_area(
+                "运行日志",
+                value="\n".join(log_lines),
+                height=280,
+                disabled=True,
+                label_visibility="collapsed",
+                key="orl_log_view",
+            )
+        st.dataframe(
+            [{"轮次": r[0], "选择": r[1], "收益": r[2], "余额": r[3]} for r in path_rows[-30:]],
+            use_container_width=True,
+            height=200,
+            hide_index=True,
+        )
+        st.caption("选择牌堆柱状图（x 轴：A/B/C/D，y 轴：选择次数）")
+        df_bar = pd.DataFrame({"选择次数": [counts.get(d, 0) for d in decks]}, index=decks)
+        st.bar_chart(df_bar, height=200)
+    with col_right:
+        prop_a, prop_b, prop_c, prop_d = [], [], [], []
+        c = {d: 0 for d in decks}
+        for r in path_rows:
+            c[r[1]] = c.get(r[1], 0) + 1
+            t = sum(c.values())
+            prop_a.append(c["A"] / t)
+            prop_b.append(c["B"] / t)
+            prop_c.append(c["C"] / t)
+            prop_d.append(c["D"] / t)
+        st.caption("牌堆比例（曲线）")
+        st.line_chart({"A": prop_a, "B": prop_b, "C": prop_c, "D": prop_d}, height=200)
+        st.caption("收益曲线")
+        st.line_chart({"余额": balances}, height=200)
+        st.caption("期望收益 Ef")
+        st.line_chart({f"Ef({a})": ef_history[a] for a in decks}, height=200)
+else:
+    st.info("👈 在左侧设置参数后点击「开始运行 ORL」，可看到 V 值、Ef 值与频率感知图。")

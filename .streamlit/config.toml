@@ -1,0 +1,5 @@
+# 保留 light/dark 模式；dark 模式下按钮主调为蓝色系
+[theme]
+primaryColor = "#4A90D9"
+font = "sans serif"
+# 不强制 backgroundColor，以便用户切换 light/dark 时背景随主题变化
