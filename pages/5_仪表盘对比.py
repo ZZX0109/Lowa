@@ -13,12 +13,15 @@ from run_orl import run_orl_one_step
 from auth import is_logged_in, get_user_id, get_nickname
 from submission_store import add_submission
 from deck_config import get_decks, get_allow_user_edit
+from i18n import t, get_lang, set_lang
 
 st.set_page_config(page_title="仪表盘对比 · IGT", page_icon="📊", layout="wide")
+if "lang" not in st.session_state:
+    st.session_state.lang = "zh"
 
 if not is_logged_in():
-    st.warning("请先返回首页登录。")
-    if st.button("返回首页"):
+    st.warning(t("warn_login"))
+    if st.button(t("btn_back_home_short")):
         st.switch_page("app.py")
     st.stop()
 if not get_allow_user_edit():
@@ -26,25 +29,30 @@ if not get_allow_user_edit():
 elif "igt_decks" not in st.session_state:
     st.session_state.igt_decks = get_decks()
 
-st.title("📊 仪表盘对比 · 三模型同参数对比")
-st.caption("配置三组算法参数，运行后可逐步看到总收益折线图与牌组选择占比柱状图变化；选择日志可收缩查看。")
+with st.sidebar:
+    new_lang = st.selectbox("Language / 语言", ["zh", "en"], index=0 if get_lang() == "zh" else 1, format_func=lambda x: t("lang_zh") if x == "zh" else t("lang_en"), key="lang_dash")
+    if new_lang != get_lang():
+        set_lang(new_lang)
+        st.rerun()
+
+st.title(t("dash_page_title"))
+st.caption(t("dash_page_caption"))
 st.markdown("---")
 
-# 参数配置：试验轮数、随机种子、每步延迟 放一行
-st.subheader("参数配置")
+st.subheader(t("params_config"))
 c_rounds, c_seed, c_delay = st.columns(3)
 with c_rounds:
-    n_trials = st.number_input("试验轮数（三模型共用）", min_value=50, max_value=2000, value=300, step=50)
+    n_trials = st.number_input(t("n_trials_shared"), min_value=50, max_value=2000, value=300, step=50)
 with c_seed:
-    seed = st.number_input("随机种子", min_value=0, value=42, step=1)
+    seed = st.number_input(t("seed_short"), min_value=0, value=42, step=1)
 with c_delay:
-    step_delay = st.slider("每步延迟（秒）", 0.0, 0.5, 0.05, 0.01, help=">0 时可看到图表随轮次实时变化")
+    step_delay = st.slider(t("step_delay"), 0.0, 0.5, 0.05, 0.01, help=t("step_delay_dash_help"))
 
 c1, c2, c3 = st.columns(3)
 with c1:
-    st.markdown("**📈 Delta 规则**")
+    st.markdown("**📈 Delta**")
     delta_alpha = st.slider("Delta α", 0.01, 0.5, 0.15, 0.01, key="d_alpha")
-    delta_temp = st.slider("Delta 温度", 0.1, 3.0, 1.5, 0.1, key="d_temp")
+    delta_temp = st.slider("Delta " + t("temp"), 0.1, 3.0, 1.5, 0.1, key="d_temp")
 with c2:
     st.markdown("**🤖 Q-learning**")
     ql_alpha = st.slider("Q-learning α", 0.01, 0.5, 0.15, 0.01, key="ql_alpha")
@@ -56,9 +64,9 @@ with c3:
     orl_alpha_f = st.slider("ORL α_freq", 0.01, 0.5, 0.15, 0.01, key="orl_af")
     orl_W_v = st.slider("ORL W_v", 0.0, 1.0, 0.5, 0.05, key="orl_wv")
     orl_W_f = st.slider("ORL W_f", 0.0, 1.0, 0.5, 0.05, key="orl_wf")
-    orl_temp = st.slider("ORL 温度", 0.1, 3.0, 1.5, 0.1, key="orl_temp")
+    orl_temp = st.slider("ORL " + t("temp"), 0.1, 3.0, 1.5, 0.1, key="orl_temp")
 
-run_clicked = st.button("▶ 开始对比", type="primary")
+run_clicked = st.button(t("run_all"), type="primary")
 
 if run_clicked:
     decks = list("ABCD")
@@ -90,14 +98,14 @@ if run_clicked:
         return [c[x] / n for x in decks]
 
     with st.spinner("正在逐步运行三组模型…"):
-        for t in range(1, n_trials + 1):
+        for step in range(1, n_trials + 1):
             choice_d, r_d, V_d = run_delta_one_step(env_d, V_d, delta_alpha, delta_temp)
             choice_q, r_q, Q_q = run_qlearning_one_step(env_q, Q_q, ql_alpha, ql_epsilon, ql_gamma)
             choice_o, r_o, V_o, Ef_o = run_orl_one_step(env_o, V_o, Ef_o, orl_alpha_v, orl_alpha_f, orl_W_v, orl_W_f, orl_temp)
 
-            path_d.append((t, choice_d, r_d, env_d.balance))
-            path_q.append((t, choice_q, r_q, env_q.balance))
-            path_o.append((t, choice_o, r_o, env_o.balance))
+            path_d.append((step, choice_d, r_d, env_d.balance))
+            path_q.append((step, choice_q, r_q, env_q.balance))
+            path_o.append((step, choice_o, r_o, env_o.balance))
             bal_d.append(env_d.balance)
             bal_q.append(env_q.balance)
             bal_o.append(env_o.balance)
@@ -189,9 +197,9 @@ if "dashboard" in st.session_state:
     st.pyplot(fig)
     plt.close()
 
-    st.subheader("选择日志")
+    st.subheader(t("history_label"))
     def make_log(path_rows):
-        return [{"轮次": t, "选择": c, "收益": r, "余额": b} for t, c, r, b in path_rows]
+        return [{t("col_round"): rnd, t("col_choice"): c, t("col_reward"): r, t("col_balance"): b} for rnd, c, r, b in path_rows]
 
     with st.expander("📈 Delta 规则 · 选择日志", expanded=False):
         st.dataframe(make_log(path_d), use_container_width=True, height=200, hide_index=True)
@@ -202,7 +210,7 @@ if "dashboard" in st.session_state:
     with st.expander("🧠 ORL · 选择日志", expanded=False):
         st.dataframe(make_log(path_o), use_container_width=True, height=200, hide_index=True)
 
-    if st.button("📤 提交", key="dashboard_submit"):
+    if st.button(t("btn_submit_run"), key="dashboard_submit"):
         d = st.session_state.dashboard
         add_submission(
             "仪表盘",
@@ -219,7 +227,7 @@ if "dashboard" in st.session_state:
                 "decks": d.get("decks", dict(st.session_state.igt_decks)),
             },
         )
-        st.success("已提交。")
+        st.success(t("submitted_thanks"))
         st.rerun()
 else:
-    st.info("👆 设置参数后点击「开始对比」，将同时运行三组模型并生成对比图。")
+    st.info("👆 " + t("hint_dash"))
